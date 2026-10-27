@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Chat.Blazor/Chat.Blazor.csproj" Id="d404df4f-1656-47c2-aef4-23729ce082d3" />
   <Project Path="SignalR.Client/SignalR.Client.csproj" />
   <Project Path="SignalR.Hub/SignalR.Hub.csproj" />
   <Project Path="SignalR.Shared/SignalR.Shared.csproj" />
