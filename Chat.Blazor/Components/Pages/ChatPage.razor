@@ -1,0 +1,417 @@
+@page "/"
+@page "/chat"
+@rendermode InteractiveServer
+@implements IAsyncDisposable
+@inject IConfiguration Configuration
+@inject IJSRuntime JS
+
+<PageTitle>SignalR Chat - Blazor</PageTitle>
+
+<div class="chat-container">
+    <div class="card shadow-sm border-0 mb-4">
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-3">
+            <div>
+                <h1 class="h4 mb-0 fw-bold">Chat en tiempo real</h1>
+                <small class="text-white-50">Cliente Blazor SignalR sincronizado con Hub</small>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="badge @StatusBadgeClass py-2 px-3 fs-6">
+                    <span class="status-dot @StatusDotClass me-1"></span>
+                    <span id="status">@_status</span>
+                </span>
+                <button class="btn btn-sm btn-outline-light" 
+                        type="button" 
+                        @onclick="ToggleSettings" 
+                        title="Configuración de servidor">
+                    ⚙️
+                </button>
+            </div>
+        </div>
+
+        @if (_showSettings)
+        {
+            <div class="card-body bg-light border-bottom">
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-9">
+                        <label for="hubUrlInput" class="form-label small fw-semibold text-muted mb-1">
+                            URL del Hub SignalR
+                        </label>
+                        <input id="hubUrlInput" 
+                               type="text" 
+                               class="form-control form-control-sm" 
+                               @bind="_hubUrl" 
+                               placeholder="https://..." />
+                    </div>
+                    <div class="col-md-3 d-flex gap-2">
+                        <button class="btn btn-sm btn-primary w-100" 
+                                @onclick="StartConnectionAsync" 
+                                disabled="@_isConnecting">
+                            @(_isConnecting ? "Conectando..." : "Reconectar Hub")
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+
+        <div class="card-body">
+            @if (!string.IsNullOrEmpty(_feedbackAlert))
+            {
+                <div class="alert alert-@_feedbackAlertType alert-dismissible fade show d-flex align-items-center mb-3" role="alert">
+                    <div class="flex-grow-1">
+                        @_feedbackAlert
+                    </div>
+                    <button type="button" class="btn-close" @onclick="DismissAlert" aria-label="Close"></button>
+                </div>
+            }
+
+            <!-- Selector de Sala -->
+            <div class="row g-3 align-items-end mb-4">
+                <div class="col-sm-6 col-md-5">
+                    <label for="roomInput" class="form-label fw-bold mb-1">Sala</label>
+                    <select id="roomInput" class="form-select" @bind="_salaSeleccionada">
+                        <option value="Desarrollo">Desarrollo</option>
+                        <option value="Diseño">Diseño</option>
+                    </select>
+                </div>
+                <div class="col-sm-6 col-md-4">
+                    <button id="joinRoomButton" 
+                            class="btn btn-outline-primary w-100" 
+                            disabled="@(!CanJoinRoom)" 
+                            @onclick="UnirseASalaAsync">
+                        Unirse a la sala
+                    </button>
+                </div>
+                <div class="col-12 col-md-3 text-md-end">
+                    @if (!string.IsNullOrEmpty(_salaUnida))
+                    {
+                        <span class="badge bg-success-subtle text-success border border-success-subtle p-2">
+                            Sala actual: <strong>@_salaUnida</strong>
+                        </span>
+                    }
+                    else
+                    {
+                        <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle p-2">
+                            Sin sala unida
+                        </span>
+                    }
+                </div>
+            </div>
+
+            <hr class="text-muted" />
+
+            <!-- Formulario de Mensaje -->
+            <div class="row g-3 mb-4">
+                <div class="col-md-4">
+                    <label for="userInput" class="form-label fw-bold mb-1">Usuario</label>
+                    <input id="userInput" 
+                           class="form-control" 
+                           maxlength="40" 
+                           placeholder="Escribe tu nombre..." 
+                           @bind="_userInput" 
+                           @bind:event="oninput" />
+                </div>
+                <div class="col-md-6">
+                    <label for="messageInput" class="form-label fw-bold mb-1">Mensaje</label>
+                    <input id="messageInput" 
+                           class="form-control" 
+                           maxlength="1000" 
+                           placeholder="Escribe un mensaje..." 
+                           @bind="_messageInput" 
+                           @bind:event="oninput" 
+                           @onkeydown="HandleKeyDown" />
+                </div>
+                <div class="col-md-2 d-flex align-items-end">
+                    <button id="sendButton" 
+                            class="btn btn-primary w-100" 
+                            disabled="@(!CanSendMessage)" 
+                            @onclick="SendMessageAsync">
+                        Enviar
+                    </button>
+                </div>
+            </div>
+
+            <!-- Lista de Mensajes -->
+            <div class="chat-messages-card border rounded p-3 bg-light">
+                <div class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                    <span class="text-muted small fw-semibold">Historial de Conversación</span>
+                    <span class="badge bg-light text-dark border">@_messages.Count mensaje(s)</span>
+                </div>
+
+                <div class="messages-scroll-area" @ref="_messagesContainer">
+                    <ul id="messagesList" class="messages-list list-unstyled mb-0">
+                        @if (_messages.Count == 0)
+                        {
+                            <li class="text-center text-muted py-4 fst-italic">
+                                No hay mensajes en la conversación. ¡Únete a una sala y envía el primer mensaje!
+                            </li>
+                        }
+                        else
+                        {
+                            @foreach (var msg in _messages)
+                            {
+                                var hora = msg.SentAt.ToLocalTime().ToString("T");
+                                var isCurrentUser = !string.IsNullOrWhiteSpace(_userInput) &&
+                                                    string.Equals(msg.User, _userInput.Trim(), StringComparison.OrdinalIgnoreCase);
+
+                                <li class="message-item mb-2 @(isCurrentUser ? "text-end" : "text-start")">
+                                    <div class="message-bubble d-inline-block text-start p-2 px-3 rounded shadow-sm @(isCurrentUser ? "bg-primary text-white" : "bg-white border text-dark")">
+                                        <div class="d-flex justify-content-between align-items-center gap-2 mb-1">
+                                            <strong class="small @(isCurrentUser ? "text-white" : "text-primary")">@msg.User</strong>
+                                            <small class="@(isCurrentUser ? "text-white-50" : "text-muted")" style="font-size: 0.75rem;">(@hora)</small>
+                                        </div>
+                                        <div class="message-text">@msg.Message</div>
+                                    </div>
+                                    <!-- Elemento invisible con el formato exacto de texto para compatibilidad absoluta -->
+                                    <span class="visually-hidden">@($"{msg.User}: {msg.Message} ({hora})")</span>
+                                </li>
+                            }
+                        }
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+@code {
+    private HubConnection? _hubConnection;
+    private string _hubUrl = string.Empty;
+    private string _salaSeleccionada = "Desarrollo";
+    private string? _salaUnida;
+    private string _userInput = string.Empty;
+    private string _messageInput = string.Empty;
+    private string _status = "Conectando...";
+    private string? _feedbackAlert;
+    private string _feedbackAlertType = "warning";
+    private bool _isConnecting = false;
+    private bool _showSettings = false;
+    private readonly List<ChatMessage> _messages = new();
+    private ElementReference _messagesContainer;
+
+    private bool IsConnected => _hubConnection?.State == HubConnectionState.Connected;
+    private bool CanJoinRoom => IsConnected && !_isConnecting;
+    private bool CanSendMessage => IsConnected && !string.IsNullOrEmpty(_salaUnida) && !_isConnecting;
+
+    private string StatusBadgeClass => _status switch
+    {
+        var s when s.StartsWith("Conectado a la sala") => "bg-success text-white",
+        "Conectado. Únete a una sala." => "bg-info text-dark",
+        "Conectando..." => "bg-warning text-dark",
+        "Reconectando..." => "bg-warning text-dark",
+        _ => "bg-danger text-white"
+    };
+
+    private string StatusDotClass => _status switch
+    {
+        var s when s.StartsWith("Conectado a la sala") => "",
+        "Conectando..." or "Reconectando..." => "pulsing",
+        _ => ""
+    };
+
+    protected override void OnInitialized()
+    {
+        _hubUrl = Configuration["SignalR:HubUrl"] ?? "https://chathub-b2hdatgbenfca9f5.eastus2-01.azurewebsites.net/chatHub";
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await StartConnectionAsync();
+        }
+    }
+
+    private void ToggleSettings()
+    {
+        _showSettings = !_showSettings;
+    }
+
+    private void DismissAlert()
+    {
+        _feedbackAlert = null;
+    }
+
+    private void ShowAlert(string message, string type = "warning")
+    {
+        _feedbackAlert = message;
+        _feedbackAlertType = type;
+        StateHasChanged();
+    }
+
+    private async Task StartConnectionAsync()
+    {
+        _isConnecting = true;
+        _status = "Conectando...";
+        _feedbackAlert = null;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            if (_hubConnection is not null)
+            {
+                await _hubConnection.DisposeAsync();
+            }
+
+            _hubConnection = new HubConnectionBuilder()
+                .WithUrl(_hubUrl, options =>
+                {
+                    // Soporte en desarrollo para certificados locales o auto-firmados
+                    options.HttpMessageHandlerFactory = handler =>
+                    {
+                        if (handler is HttpClientHandler clientHandler)
+                        {
+                            clientHandler.ServerCertificateCustomValidationCallback =
+                                HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
+                        }
+                        return handler;
+                    };
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            _hubConnection.On<ChatMessage>("ReceiveMessage", (message) =>
+            {
+                _messages.Add(message);
+                _ = ScrollToBottomAsync();
+                InvokeAsync(StateHasChanged);
+            });
+
+            _hubConnection.Reconnecting += (error) =>
+            {
+                _status = "Reconectando...";
+                _salaUnida = null;
+                return InvokeAsync(StateHasChanged);
+            };
+
+            _hubConnection.Reconnected += (connectionId) =>
+            {
+                _status = "Conectado. Únete a una sala.";
+                _salaUnida = null;
+                return InvokeAsync(StateHasChanged);
+            };
+
+            _hubConnection.Closed += (error) =>
+            {
+                _status = "Error de conexión";
+                _salaUnida = null;
+                return InvokeAsync(StateHasChanged);
+            };
+
+            await _hubConnection.StartAsync();
+
+            _status = "Conectado. Únete a una sala.";
+            _feedbackAlert = null;
+        }
+        catch (Exception ex)
+        {
+            _status = "Error de conexión";
+            ShowAlert($"Error de conexión al hub: {ex.Message}", "danger");
+            Console.Error.WriteLine(ex);
+        }
+        finally
+        {
+            _isConnecting = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task UnirseASalaAsync()
+    {
+        _feedbackAlert = null;
+
+        if (!IsConnected)
+        {
+            ShowAlert("No existe una conexión activa.", "warning");
+            return;
+        }
+
+        try
+        {
+            await _hubConnection!.InvokeAsync("UnirseASala", _salaSeleccionada);
+            _salaUnida = _salaSeleccionada;
+            _status = $"Conectado a la sala {_salaSeleccionada}";
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"No se pudo entrar a la sala: {ex}");
+            _status = "No se pudo entrar a la sala";
+            ShowAlert("No se pudo entrar a la sala.", "danger");
+        }
+    }
+
+    private async Task SendMessageAsync()
+    {
+        _feedbackAlert = null;
+
+        if (string.IsNullOrEmpty(_salaUnida))
+        {
+            ShowAlert("Primero debes unirte a una sala.", "warning");
+            return;
+        }
+
+        var user = _userInput?.Trim();
+        var message = _messageInput?.Trim();
+
+        if (string.IsNullOrWhiteSpace(user) || string.IsNullOrWhiteSpace(message))
+        {
+            ShowAlert("Completa el usuario y el mensaje.", "warning");
+            return;
+        }
+
+        if (!IsConnected)
+        {
+            ShowAlert("No existe una conexión activa.", "warning");
+            return;
+        }
+
+        try
+        {
+            await _hubConnection!.InvokeAsync("SendMessage", _salaUnida, user, message);
+            _messageInput = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"No se pudo enviar el mensaje: {ex}");
+            _status = "No se pudo enviar el mensaje";
+            ShowAlert("No se pudo enviar el mensaje.", "danger");
+        }
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && CanSendMessage)
+        {
+            await SendMessageAsync();
+        }
+    }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await Task.Delay(50);
+            await JS.InvokeVoidAsync("eval", "const el = document.querySelector('.messages-scroll-area'); if(el) el.scrollTop = el.scrollHeight;");
+        }
+        catch
+        {
+            // JS no disponible o componente destruido
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_hubConnection is not null)
+        {
+            try
+            {
+                await _hubConnection.DisposeAsync();
+            }
+            catch
+            {
+                // Silenciar excepciones al desmontar
+            }
+        }
+    }
+}

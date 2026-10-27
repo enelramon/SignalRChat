@@ -1,0 +1,36 @@
+/* site.css - Estilos globales y del cliente SignalR Chat */
+
+.chat-container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+
+.messages-scroll-area {
+    max-height: 400px;
+    min-height: 250px;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+
+.message-bubble {
+    max-width: 75%;
+    word-break: break-word;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: currentColor;
+}
+
+.status-dot.pulsing {
+    animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.4; transform: scale(1.2); }
+    100% { opacity: 1; transform: scale(1); }
+}
