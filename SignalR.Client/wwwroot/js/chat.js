@@ -2,7 +2,7 @@
 
 const connection =
     new signalR.HubConnectionBuilder()
-        .withUrl("https://localhost:7001/chatHub")
+        .withUrl("https://chathub-b2hdatgbenfca9f5.eastus2-01.azurewebsites.net/chatHub")
         .withAutomaticReconnect()
         .build();
 
