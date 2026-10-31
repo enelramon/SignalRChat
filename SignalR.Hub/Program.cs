@@ -6,14 +6,12 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("ClientPolicy", policy =>
     {
-        policy
-            .WithOrigins("https://localhost:7002")
-            .AllowAnyHeader()
+        policy.AllowAnyOrigin()
             .AllowAnyMethod()
-            .AllowCredentials();
+            .AllowAnyHeader();
     });
 });
-
+ 
 builder.Services.AddSignalR();
 
 var app = builder.Build();
