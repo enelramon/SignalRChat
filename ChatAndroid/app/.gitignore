@@ -1,0 +1,25 @@
+# ==========================================
+# Android App Module Exclusions (Wildcards)
+# ==========================================
+# Build outputs and temporary intermediates
+/build/
+
+# Android package outputs
+*.apk
+*.aab
+*.ap_
+
+# Compiled bytecode and cache
+*.class
+*.dex
+
+# Native build and C++ cache
+.cxx/
+.externalNativeBuild/
+
+# Signing keystores & credentials
+*.keystore
+*.jks
+
+# Module specific IDE files
+*.iml
